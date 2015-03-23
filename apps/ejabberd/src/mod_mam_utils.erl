@@ -33,7 +33,8 @@
          result_prefs/3,
          parse_prefs/1,
          borders_decode/1,
-         decode_optimizations/1]).
+         decode_optimizations/1,
+         extract_field_data/2]).
 
 %% JID serialization
 -export([jid_to_opt_binary/2,
@@ -86,7 +87,7 @@
 
 %% Constants
 rsm_ns_binary() -> <<"http://jabber.org/protocol/rsm">>.
-mam_ns_binary() -> <<"urn:xmpp:mam:tmp">>.
+mam_ns_binary() -> <<"urn:xmpp:mam:0">>.
 
 %% ----------------------------------------------------------------------
 %% Datetime types
@@ -475,19 +476,40 @@ borders(AfterID, BeforeID, FromID, ToID) ->
 
 -spec tag_id(jlib:xmlel(), binary()) -> 'undefined' | integer().
 tag_id(QueryEl, Name) ->
-    BExtMessID = xml:get_tag_attr_s(Name, QueryEl),
+    BExtMessID = extract_field_data(Name, QueryEl),
     maybe_external_binary_to_mess_id(BExtMessID).
 
 
 -spec decode_optimizations(jlib:xmlel()) -> 'false' | 'opt_count' | 'true'.
 decode_optimizations(QueryEl) ->
-    case {xml:get_subtag(QueryEl, <<"simple">>),
-          xml:get_subtag(QueryEl, <<"opt_count">>)} of
+    case {extract_field_data(<<"simple">>, QueryEl) =/= <<>>,
+          extract_field_data(<<"opt_count">>, QueryEl) =/= <<>>} of
         {false, false} -> false;
         {false, _}     -> opt_count;
         _              -> true
     end.
 
+-spec extract_field_data(binary(), jlib:xmlel()) -> binary().
+extract_field_data(FieldName, El) ->
+    Fields = get_form_fields(El),
+    R = [F || F <- Fields,
+              xml:get_tag_attr_s(<<"var">>,F) == FieldName],
+    case R of
+        [Field] ->
+            xml:get_path_s(Field, [{elem, <<"value">>},cdata]);
+        _ ->
+            <<>>
+    end.
+
+-spec get_form_fields(jlib:xmlel()) -> list(binary()).
+get_form_fields(El) ->
+    case xml:get_subtag(El, <<"x">>) of
+        false ->
+            [];
+        XEl ->
+            ?ERROR_MSG("~p", [XEl]),
+            XEl#xmlel.children
+    end.
 
 %% -----------------------------------------------------------------------
 %% JID serialization

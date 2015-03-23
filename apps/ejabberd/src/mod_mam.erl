@@ -74,7 +74,8 @@
          result_prefs/3,
          parse_prefs/1,
          borders_decode/1,
-         decode_optimizations/1]).
+         decode_optimizations/1,
+         extract_field_data/2]).
 
 %% Other
 -import(mod_mam_utils,
@@ -416,6 +417,8 @@ handle_mam_iq(Action, From, To, IQ) ->
         handle_set_prefs(To, IQ);
     mam_lookup_messages ->
         handle_lookup_messages(From, To, IQ);
+    mam_get_form_fields ->
+        handle_get_form_fields(From, To, IQ);
     mam_purge_single_message ->
         handle_purge_single_message(To, IQ);
     mam_purge_multiple_messages ->
@@ -428,8 +431,9 @@ iq_action(#iq{type = Action, sub_el = SubEl = #xmlel{name = Category}}) ->
     case {Action, Category} of
         {set, <<"prefs">>} -> mam_set_prefs;
         {get, <<"prefs">>} -> mam_get_prefs;
-        {get, <<"query">>} -> mam_lookup_messages;
-        {set, <<"purge">>} ->
+        {set, <<"query">>} -> mam_lookup_messages;
+        {get, <<"query">>} -> mam_get_form_fields;
+       {set, <<"purge">>} ->
             case xml:get_tag_attr_s(<<"id">>, SubEl) of
                 <<>> -> mam_purge_multiple_messages;
                 _    -> mam_purge_single_message
@@ -470,7 +474,7 @@ handle_get_prefs_result({DefaultMode, AlwaysJIDs, NeverJIDs}, IQ) ->
     IQ#iq{type = result, sub_el = [ResultPrefsEl]};
 handle_get_prefs_result({error, Reason}, IQ) ->
     return_error_iq(IQ, Reason).
-    
+
 
 -spec handle_lookup_messages(From :: ejabberd:jid(), ArcJID :: ejabberd:jid(),
                              IQ :: ejabberd:iq()) -> ejabberd:iq().
@@ -506,6 +510,10 @@ handle_lookup_messages(
     {error, Reason} ->
         return_error_iq(IQ, Reason);
     {ok, {TotalCount, Offset, MessageRows}} ->
+        %% push iq result - accept query
+        IQResult = IQ#iq{type = result, sub_el = []},
+        ejabberd_router:route(ArcJID, From, jlib:iq_to_xml(IQResult)),
+
         {FirstMessID, LastMessID} =
             case MessageRows of
                 []    -> {undefined, undefined};
@@ -515,12 +523,62 @@ handle_lookup_messages(
         [send_message(ArcJID, From, message_row_to_xml(M, QueryID))
          || M <- MessageRows],
         ResultSetEl = result_set(FirstMessID, LastMessID, Offset, TotalCount),
-        ResultQueryEl = result_query(ResultSetEl),
         %% On receiving the query, the server pushes to the client a series of
         %% messages from the archive that match the client's given criteria,
-        %% and finally returns the <iq/> result.
-        IQ#iq{type = result, sub_el = [ResultQueryEl]}
+        %% and finally returns the messge with <fin/> result.
+        Complete = is_complete(IsSimple, TotalCount, Offset, PageSize),
+        FinEl = #xmlel{name = <<"fin">>,
+                       attrs = [{<<"xmlns">>, ?NS_MAM},
+                                {<<"queryid">>, QueryID},
+                                {<<"complete">>, Complete}],
+                       children = [ResultSetEl]},
+        FinMessage = #xmlel{name = <<"message">>, children = [FinEl]},
+        ejabberd_router:route(ArcJID, From, FinMessage),
+        ignore
     end.
+
+is_complete(false, TotalCount, Offset, PageSize) when is_integer(TotalCount),
+                                                      is_integer(Offset),
+                                                      is_integer(PageSize) ->
+    case (TotalCount - Offset) =< PageSize of
+        true -> <<"true">>;
+        false -> <<"false">>
+    end;
+is_complete(_IsSimple, _TotalCount, _Offset, _PageSize) ->
+    <<"false">>.
+
+field_el(Name, Type) ->
+    field_el(Name, Type, []).
+field_el(Name, Type, Value) ->
+    #xmlel{name = <<"field">>,
+           attrs = [{<<"type">>, Type},
+                    {<<"var">>, Name}],
+           children = Value}.
+handle_get_form_fields(From=#jid{}, ArcJID=#jid{}, IQ=#iq{sub_el = QueryEl}) ->
+    FormTypeVal = [#xmlel{name = <<"value">>,
+                         children =[#xmlcdata{content = ?NS_MAM}]}],
+    Fields = [field_el(<<"FORM_TYPE">>, <<"hidden">>, FormTypeVal),
+              field_el(<<"with">>, <<"jid-single">>),
+              field_el(<<"start">>, <<"text-single">>),
+              field_el(<<"end">>, <<"text-single">>),
+              field_el(<<"before_id">>, <<"text-single">>),
+              field_el(<<"after_id">>, <<"text-single">>),
+              field_el(<<"from_id">>, <<"text-single">>),
+              field_el(<<"to_id">>, <<"text-single">>),
+              field_el(<<"simple">>, <<"boolean">>),
+              field_el(<<"opt_count">>, <<"boolean">>)
+             ],
+    XFormEl = #xmlel{
+                 name = <<"x">>,
+                 attrs = [{<<"xmlns">>,  ?NS_XDATA},
+                          {<<"type">>, <<"form">>}],
+                 children = Fields
+                },
+    ResultQueryEl= #xmlel{
+        name = <<"query">>,
+        attrs = [{<<"xmlns">>, ?NS_MAM}],
+        children = [XFormEl]},
+    IQ#iq{type = result, sub_el =[ResultQueryEl]}.
 
 
 %% @doc Purging multiple messages
@@ -744,19 +802,20 @@ fix_rsm(RSM=#rsm_in{id = BExtMessID}) when is_binary(BExtMessID) ->
     RSM#rsm_in{id = MessID}.
 
 
+
 -spec elem_to_start_microseconds(_) -> 'undefined' | non_neg_integer().
 elem_to_start_microseconds(El) ->
-    maybe_microseconds(xml:get_path_s(El, [{elem, <<"start">>}, cdata])).
+    maybe_microseconds(extract_field_data(<<"start">>, El)).
 
 
 -spec elem_to_end_microseconds(_) -> 'undefined' | non_neg_integer().
 elem_to_end_microseconds(El) ->
-    maybe_microseconds(xml:get_path_s(El, [{elem, <<"end">>}, cdata])).
+    maybe_microseconds(extract_field_data(<<"end">>, El)).
 
 
 -spec elem_to_with_jid(jlib:xmlel()) -> 'error' | 'undefined' | ejabberd:jid().
 elem_to_with_jid(El) ->
-    maybe_jid(xml:get_path_s(El, [{elem, <<"with">>}, cdata])).
+    maybe_jid(extract_field_data(<<"with">>, El)).
 
 
 %% @doc This element's name is "limit". But it must be "max" according XEP-0313.
