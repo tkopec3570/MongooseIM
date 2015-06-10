@@ -411,18 +411,18 @@ action_to_global_shaper_name(Action) -> list_to_atom(atom_to_list(Action) ++ "_g
                     IQ :: ejabberd:iq()) -> ejabberd:iq().
 handle_mam_iq(Action, From, To, IQ) ->
     case Action of
-    mam_get_prefs ->
-        handle_get_prefs(To, IQ);
-    mam_set_prefs ->
-        handle_set_prefs(To, IQ);
-    mam_lookup_messages ->
-        handle_lookup_messages(From, To, IQ);
-    mam_get_form_fields ->
-        handle_get_form_fields(From, To, IQ);
-    mam_purge_single_message ->
-        handle_purge_single_message(To, IQ);
-    mam_purge_multiple_messages ->
-        handle_purge_multiple_messages(To, IQ)
+        mam_get_prefs ->
+            handle_get_prefs(To, IQ);
+        mam_set_prefs ->
+            handle_set_prefs(To, IQ);
+        mam_lookup_messages ->
+            handle_lookup_messages(From, To, IQ);
+        mam_get_form_fields ->
+            handle_get_form_fields(From, To, IQ);
+        mam_purge_single_message ->
+            handle_purge_single_message(To, IQ);
+        mam_purge_multiple_messages ->
+            handle_purge_multiple_messages(To, IQ)
     end.
 
 
@@ -433,7 +433,7 @@ iq_action(#iq{type = Action, sub_el = SubEl = #xmlel{name = Category}}) ->
         {get, <<"prefs">>} -> mam_get_prefs;
         {set, <<"query">>} -> mam_lookup_messages;
         {get, <<"query">>} -> mam_get_form_fields;
-       {set, <<"purge">>} ->
+        {set, <<"purge">>} ->
             case xml:get_tag_attr_s(<<"id">>, SubEl) of
                 <<>> -> mam_purge_multiple_messages;
                 _    -> mam_purge_single_message
@@ -525,7 +525,7 @@ handle_lookup_messages(
         ResultSetEl = result_set(FirstMessID, LastMessID, Offset, TotalCount),
         %% On receiving the query, the server pushes to the client a series of
         %% messages from the archive that match the client's given criteria,
-        %% and finally returns the messge with <fin/> result.
+        %% and finally returns the message with <fin/> result.
         Complete = is_complete(IsSimple, TotalCount, Offset, PageSize),
         FinEl = #xmlel{name = <<"fin">>,
                        attrs = [{<<"xmlns">>, ?NS_MAM},
@@ -554,7 +554,7 @@ field_el(Name, Type, Value) ->
            attrs = [{<<"type">>, Type},
                     {<<"var">>, Name}],
            children = Value}.
-handle_get_form_fields(From=#jid{}, ArcJID=#jid{}, IQ=#iq{sub_el = QueryEl}) ->
+handle_get_form_fields(_From=#jid{}, _ArcJID=#jid{}, IQ=#iq{}) ->
     FormTypeVal = [#xmlel{name = <<"value">>,
                          children =[#xmlcdata{content = ?NS_MAM}]}],
     Fields = [field_el(<<"FORM_TYPE">>, <<"hidden">>, FormTypeVal),

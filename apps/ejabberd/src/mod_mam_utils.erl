@@ -507,7 +507,6 @@ get_form_fields(El) ->
         false ->
             [];
         XEl ->
-            ?ERROR_MSG("~p", [XEl]),
             XEl#xmlel.children
     end.
 
