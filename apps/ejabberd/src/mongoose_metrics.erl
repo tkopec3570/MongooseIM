@@ -110,12 +110,12 @@ create_generic_hook_metric(Host, Hook) ->
 increment_generic_hook_metric(Host, Hook) ->
     do_increment_generic_hook_metric([Host, filter_hook(Hook)]).
 
-do_create_generic_hook_metric({_, skip}) ->
+do_create_generic_hook_metric([_, skip]) ->
     ok;
 do_create_generic_hook_metric(MetricName) ->
     ensure_metric(MetricName, spiral).
 
-do_increment_generic_hook_metric({_, skip}) ->
+do_increment_generic_hook_metric([_, skip]) ->
     ok;
 do_increment_generic_hook_metric(MetricName) ->
     update(MetricName, 1).
