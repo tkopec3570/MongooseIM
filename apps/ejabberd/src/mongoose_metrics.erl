@@ -71,7 +71,7 @@ start_global_metrics_subscriptions(Reporter, Interval) ->
     do_start_global_metrics_subscriptions(Reporter, Interval).
 
 start_data_metrics_subscriptions(Reporter, Interval) ->
-    do_start_metrics_subscriptions(Reporter, Interval, [data]).
+    do_start_metrics_subscriptions(Reporter, Interval, [data, xmpp]).
 
 start_backend_metrics_subscriptions(Reporter, Interval) ->
     do_start_metrics_subscriptions(Reporter, Interval, [backends]).
