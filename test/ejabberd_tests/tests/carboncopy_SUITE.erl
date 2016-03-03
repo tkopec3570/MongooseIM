@@ -8,7 +8,8 @@
 -define(ae(Expected, Actual), ?assertEqual(Expected, Actual)).
 
 all() ->
-    [{group, properties},{group, essential}].
+    [{group, properties},
+     {group, essential}].
 
 
 groups() ->
@@ -19,6 +20,7 @@ groups() ->
                   non_enabled_clients_dont_get_sent_carbons,
                   non_enabled_clients_dont_get_received_carbons,
                   enabled_single_resource_doesnt_get_carbons,
+                  % unavailable_resources_dont_get_carbons
                   dropped_client_doesnt_create_duplicate_carbons
                  ]},
      {properties, [run_properties]}].
@@ -142,6 +144,38 @@ enabled_single_resource_doesnt_get_carbons(Config) ->
               [ escalus:assert(is_chat_message, [M], escalus_client:wait_for_stanza(Alice))
                 || M <- BobsMessages ]
       end).
+
+unavailable_resources_dont_get_carbons(Config) ->
+    escalus:story(
+      Config, [{alice, 2}, {bob, 1}],
+      fun(Alice1, Alice2, Bob) ->
+        %% carbons_get_enabled(Alice1),
+        %% carbons_get_enabled(Alice2),
+        client_unsets_presence(Alice1),
+        R = escalus_client:wait_for_stanza(Alice2),
+        escalus_client:send(Bob, escalus_stanza:chat_to(Alice1, <<"one">>)),
+        %% escalus:assert(is_forwarded_received_message,
+        %%                [escalus_client:full_jid(Bob),
+        %%                 escalus_client:full_jid(Alice1),
+        %%                 <<"one">>],
+        %%                escalus_client:wait_for_stanza(Alice2)),
+         ct:pal("~p", [escalus_ejabberd:rpc(ets, tab2list, [session])]),
+        timer:sleep(1000),
+
+        client_sets_presence(Alice1),
+        _ = escalus_client:wait_for_stanza(Alice2),
+        ?assertEqual([], escalus:peek_stanzas(Alice1))
+
+      end).
+
+client_unsets_presence(Client) ->
+    escalus_client:send(Client, escalus_stanza:presence(<<"unavailable">>)),
+    timer:sleep(1000).
+
+client_sets_presence(Client) ->
+    escalus_client:send(Client, escalus_stanza:presence(<<"available">>)),
+    timer:sleep(1000).
+
 
 dropped_client_doesnt_create_duplicate_carbons(Config) ->
     AliceSpec = escalus_users:get_options(Config, alice),
