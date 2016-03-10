@@ -873,7 +873,7 @@ session_established({xmlstreamelement,
     ?WARNING_MSG("go into active state", []),
     %%TODO add metrics here
     maybe_activate_session(xml:get_tag_attr_s(<<"xmlns">>, El), StateData);
-session_established({xmlstreamelement, El}, StateData) ->
+session_established({xmlstreamelement, El} = Packet, StateData) ->
     FromJID = StateData#state.jid,
     % Check 'from' attribute in stanza RFC 3920 Section 9.1.2
     case check_from(El, FromJID) of
@@ -882,9 +882,7 @@ session_established({xmlstreamelement, El}, StateData) ->
             send_trailer(StateData),
             {stop, normal, StateData};
         _NewEl ->
-            NewState = maybe_increment_sm_incoming(StateData#state.stream_mgmt,
-                                                   StateData),
-            check_amp_maybe_send(FromJID#jid.lserver, NewState, {FromJID, El})
+            maybe_buffer_csi_incoming(StateData, Packet)
     end;
 
 %% We hibernate the process to reduce memory consumption after a
@@ -911,6 +909,15 @@ session_established(closed, StateData) ->
     ?DEBUG("Session established closed - trying to enter resume_session",[]),
     maybe_enter_resume_session(StateData#state.stream_mgmt_id, StateData).
 
+maybe_buffer_csi_incoming(#state{csi_state = active} = State,
+                          {xmlstreamelement, El}) ->
+    NewState = maybe_increment_sm_incoming(State#state.stream_mgmt,
+                                           State),
+    FromJID = State#state.jid,
+    check_amp_maybe_send(FromJID#jid.lserver, NewState, {FromJID, El});
+maybe_buffer_csi_incoming(#state{csi_buffer_in = BufferIn} = State, Packet) ->
+    NewBufferIn = [Packet | BufferIn],
+    fsm_next_state(session_established, State#state{csi_buffer_in = NewBufferIn}).
 
 %%% XEP-0079 (AMP) related
 check_amp_maybe_send(Host, State, {_FromJID, _El} = HookData) ->
@@ -2456,18 +2463,28 @@ maybe_inactivate_session(_, State) ->
     fsm_next_state(session_established, State).
 
 maybe_activate_session(?NS_CSI, State) ->
-    resend_csi_buffer_out(State);
+    StateBufferInResent = resend_csi_buffer_in(State),
+
+    {_, StateBuffersInOutResent} = resend_csi_buffer_out(StateBufferInResent),
+
+    fsm_next_state(session_established,
+                   StateBuffersInOutResent#state{csi_state = active});
 maybe_activate_session(_, State) ->
     fsm_next_state(session_established, State).
+
+resend_csi_buffer_in(#state{csi_buffer_in = BufferIn} = State) ->
+    [?GEN_FSM:send_event(self(), Event) ||
+     Event <- lists:reverse(BufferIn)],
+
+    State#state{csi_buffer_in = []}.
 
 resend_csi_buffer_out(#state{csi_buffer_out = BufferOut} = State) ->
     %%lists:foldr to preserve order
     F = fun(Packet, {_, OldState}) ->
                 send_and_maybe_buffer_stanza(Packet, OldState)
         end,
-    {_, NewState} = lists:foldr(F, {ok, State}, BufferOut),
-    fsm_next_state(session_established, NewState#state{csi_state=active,
-                                                       csi_buffer_out = []}).
+    {Result, NewState} = lists:foldr(F, {ok, State}, BufferOut),
+    {Result, NewState#state{csi_buffer_out = []}}.
 
 maybe_csi_inactive_optimisation(Packet, #state{csi_state = active} = State,
                                 StateName) ->
