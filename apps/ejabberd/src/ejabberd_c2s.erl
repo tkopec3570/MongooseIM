@@ -850,7 +850,8 @@ do_open_session_common(JID, #state{user = U, resource = R} = NewStateData0) ->
 -spec session_established(Item :: ejabberd:xml_stream_item(),
                           State :: state()) -> fsm_return().
 session_established({xmlstreamelement,
-                     #xmlel{name = <<"enable">>} = El}, StateData) ->
+                     #xmlel{name = <<"enable">>} = El},
+                    #state{csi_state = active} = StateData) ->
     maybe_enable_stream_mgmt(session_established, El, StateData);
 
 session_established({xmlstreamelement,
@@ -858,7 +859,8 @@ session_established({xmlstreamelement,
     stream_mgmt_handle_ack(session_established, El, StateData);
 
 session_established({xmlstreamelement,
-                     #xmlel{name = <<"r">>} = El}, StateData) ->
+                     #xmlel{name = <<"r">>} = El},
+                    #state{csi_state = active} = StateData) ->
     maybe_send_sm_ack(xml:get_tag_attr_s(<<"xmlns">>, El),
                       StateData#state.stream_mgmt,
                       StateData#state.stream_mgmt_in,
@@ -2457,12 +2459,12 @@ pack_string(String, Pack) ->
 %%%----------------------------------------------------------------------
 %%% XEP-0352: Client State Indication
 %%%----------------------------------------------------------------------
-maybe_inactivate_session(?NS_CSI, State) ->
+maybe_inactivate_session(?NS_CSI, #state{csi_state = active} = State) ->
     fsm_next_state(session_established, State#state{csi_state = inactive});
 maybe_inactivate_session(_, State) ->
     fsm_next_state(session_established, State).
 
-maybe_activate_session(?NS_CSI, State) ->
+maybe_activate_session(?NS_CSI, #state{csi_state = inactive} = State) ->
     StateBufferInResent = resend_csi_buffer_in(State),
 
     {_, StateBuffersInOutResent} = resend_csi_buffer_out(StateBufferInResent),
