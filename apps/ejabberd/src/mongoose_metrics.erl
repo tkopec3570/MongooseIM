@@ -341,7 +341,9 @@ metrics_hooks(Op, Host) ->
     modMucMamForwarded,
     modMucMamArchived,
     modMucMamSinglePurges,
-    modMucMamMultiplePurges
+    modMucMamMultiplePurges,
+    modCSIInactive,
+    modCSIActive
 ]).
 
 
